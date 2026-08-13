@@ -59,7 +59,6 @@ export default function LoginView({onGoSignup, onLoginSuccess}: LoginViewProps) 
           return
         }
 
-
         // 3) App에 알려서 home으로 전환
         console.info('로그인 성공', profile.user_id, profile.nickname)
         onLoginSuccess?.()

@@ -3,10 +3,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useState } from 'react';
 import LoginView from './src/screens/LoginView';
 import SignupView from './src/screens/SignupView'
-import HomeView from './src/screens/HomeView'
+import WeatherMainView from './src/screens/WeatherMainView'
+
 
 export default function App() {
-  const [screen, setScreen] = useState<'login' | 'signup' | 'home'>('login')
+  const [screen, setScreen] = useState<'login' | 'signup' | 'home'>('home')
 
   if(screen === 'signup') {
     return (
@@ -23,8 +24,7 @@ export default function App() {
   if (screen === 'home') {
     return (
       <>
-        <HomeView onLogout={() => setScreen('login')} />
-        <StatusBar style="dark" />
+        <WeatherMainView onLogout={() => setScreen('login')} />
       </>
     )
   }
@@ -32,10 +32,10 @@ export default function App() {
   return (
     <>
       <LoginView
-        onGoSignup={() => setScreen('signup')} 
+        onGoSignup={() => setScreen('signup')}
         onLoginSuccess={() => setScreen('home')}
       />
-      <StatusBar style="dark" />
+      {/* <WeatherMainView onLogout={() => setScreen('login')} /> */}
     </>
   );
 }
