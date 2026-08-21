@@ -7,7 +7,9 @@ import { fetchUltraSrtFcst } from "../lib/kmaFcst";
 import { fetchVilageFcst } from "../lib/kmaDaily";
 
 type WeatherMainViewProps = {
-    onLogout?: () => void;
+    area: { name: string, nx: number, ny:number }
+    onSearchPress:() => void;
+    onMenuPress: () => void
 }
 
 type WeatherTheme = 'sunny' | 'cloudy' | 'rain' | 'night'
@@ -70,14 +72,14 @@ type CurrentResponse = {
     daily : DailyItem[]
 }
 
-async function fetchWeather(): Promise<CurrentResponse> {
+async function fetchWeather(nx: number, ny: number, location: string): Promise<CurrentResponse> {
     const [current, hourly, daily] = await Promise.all([
-        fetchUltraSrtNcst(),
-        fetchUltraSrtFcst().catch((error) => {
+        fetchUltraSrtNcst(nx, ny, location),
+        fetchUltraSrtFcst(nx, ny).catch((error) => {
             console.error('시간별 예보 실패:', error)
             return [] as HourlyItem[]
         }),
-        fetchVilageFcst().catch((error) => {
+        fetchVilageFcst(nx, ny).catch((error) => {
             console.error('일별 예보 실패', error)
             return [] as DailyItem[]
         }),
@@ -87,7 +89,7 @@ async function fetchWeather(): Promise<CurrentResponse> {
 }
 
 
-export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
+export default function WeatherMainView({ area, onSearchPress, onMenuPress }: WeatherMainViewProps) {
     const [current, setCurrent] = useState<CurrentData | null>(null)
     const [hourly, setHourly] = useState<HourlyItem[]>([])
     const [daily, setDaily] = useState<DailyItem[]>([])
@@ -97,16 +99,18 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
     /**
-     * useEffect = 화면이 처음 나타났을 때 1회 실행 (의존성 [] )
-     * 자바 @PostConstruct / onCreate에서 API 호출하는 위치에 가깝다
+     * area(선택된 지역)가 바뀔 때마다 다시 실행됨.
+     * 처음 화면이 뜰 때도 area가 있으니 1회 실행되고,
+     * 검색화면에서 다른 지역을 고르면 area가 바뀌면서 자동으로 다시 실행됨.
      */
     useEffect(() => {
+        console.log("날씨정보 API 호출: 지역 : ", area)
         const loadWeather = async () => {
             try {
                 setIsLoading(true)
                 setErrorMessage(null)
 
-                const data = await fetchWeather() // 지금은 더미api호출
+                const data = await fetchWeather(area.nx, area.ny, area.name)
                 setCurrent(data.current)// 받은 값으로 state 갱신 → 화면 다시 그림
                 setHourly(data.hourly)
                 setDaily(data.daily)
@@ -118,7 +122,7 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
             }
         }
         loadWeather()
-    }, []) // [] = 마운트 때 한번만
+    }, [area]) // [] = 마운트 때 한번만
 
     // ----- 로딩 중: 본문 대신 스피너 -----
     // weather가 null인데 본문을 그리면 .location 접근 시 런타임 에러
@@ -150,11 +154,6 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
     // 어두운 배경 테마면 흰 아이콘
     const isDarkTheme = theme === 'night' || theme === 'rain'
 
-    const handleLogout = async () => {
-        await supabase.auth.signOut()
-        onLogout?.()
-    }
-
     const currentHigh = daily[0]?.high ?? current.high
     const currentLow = daily[0]?.low ?? current.low
 
@@ -163,7 +162,19 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
             <StatusBar barStyle={isDarkTheme ? 'light-content' : 'dark-content'} />
             <ScrollView style={[styles.scroll, { backgroundColor: thmColors.bg }]}
             contentContainerStyle={styles.content}>
-                <Text style={[styles.location, { color: thmColors.text }]}>{current.location}</Text>
+                
+                {/* 검색돋보기 */}
+                <View style={styles.headerRow}>
+                    <Pressable onPress={onMenuPress} hitSlop={8}>
+                        <Ionicons name="menu" size={22} color={thmColors.text} />
+                    </Pressable>
+                    <Text style={[styles.location, { color: thmColors.text }]}>{current.location}</Text>
+                    <Pressable onPress={onSearchPress} hitSlop={8}>
+                        <Ionicons name="search" size={22} color={thmColors.text} />
+                    </Pressable>
+                </View>
+                
+                {/* <Text style={[styles.location, { color: thmColors.text }]}>{current.location}</Text> */}
                 <Text style={[styles.temperature, { color: thmColors.text }]}>{current.temperature}°</Text>
                 <Text style={[styles.summary, { color: thmColors.text }]}>{current.summary}</Text>
                 <Ionicons name={weatherIconName[current.icon as WeatherIconKey] ?? 'partly-sunny'} size={48} color={thmColors.text}/>
@@ -193,9 +204,6 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
                     </View>
                 ))}
 
-                <Pressable style={[styles.btnLogout, { borderColor: thmColors.border }]} onPress={handleLogout}>
-                    <Text style={[styles.txtLogout, { color: thmColors.text }]}>로그아웃</Text>
-                </Pressable>
             </ScrollView>
         </>
     )
@@ -203,6 +211,16 @@ export default function WeatherMainView({ onLogout }: WeatherMainViewProps) {
 }
 
 const styles = StyleSheet.create({
+    headerRow: {
+        alignSelf: 'stretch',            // 가로 폭 꽉 채움
+        flexDirection: 'row',            // 스페이서 - 지역명 - 아이콘 가로 배치
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    headerSpacer: {
+        width: 22,                       // 오른쪽 아이콘(size=22)과 같은 폭 → 가운데 정렬 맞춤용
+    },    
     scroll: {
         flex: 1,                 // 화면 높이 꽉 채움
         backgroundColor: '#ffffff', // 배경 화이트 (테마는 나중에)
@@ -258,6 +276,7 @@ const styles = StyleSheet.create({
     },
     hourlyRow: {
         alignSelf: 'stretch',    // 가로 폭을 부모에 맞춤
+        flexGrow: 0,   // 가로 스크롤이 세로로 늘어나지 않게 (시간별~일별 사이 공백 방지)
     },
     hourlyItem: {
         width: 64,               // 칸 너비

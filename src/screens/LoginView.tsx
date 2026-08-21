@@ -1,17 +1,16 @@
 import { View, Text, StyleSheet, Pressable, TextInput,
     Keyboard,
-    Alert,
     TouchableWithoutFeedback, //빈 곳 터치 시 키보드 닫기
 } from 'react-native'
 import { useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../lib/AuthContext'
 
 type LoginViewProps = {
     onGoSignup?: () => void
-    onLoginSuccess?: () => void
 }
 
-export default function LoginView({onGoSignup, onLoginSuccess}: LoginViewProps) {
+export default function LoginView({onGoSignup}: LoginViewProps) {
+    const { signIn } = useAuth() // Auth / tb_user 조회는 Context 가 담당
     const [userId, setUserId] = useState('')
     const [password, setPassword] = useState('')
     
@@ -22,54 +21,19 @@ export default function LoginView({onGoSignup, onLoginSuccess}: LoginViewProps) 
             alert('아이디와 비밀번호를 입력해주세요.')
             return
         }
-        const email = `${trimUserId}@yWeather.com`
 
-        // 1) Auth 로그인 API
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email, password,
-        })
-
-        if(error) {
-            console.info('로그인 실패:', error.message)
-            alert('로그인 실패. 다시 시도해주세요.')
+        const failMessage = await signIn(trimUserId, password)
+        if (failMessage) {
+            alert(failMessage)
             return
         }
-
-        // 2) tb_user 확인 (user_uuid = auth 유저 id)
-        const { data: userData, error: userError } = await supabase.auth.getUser()
-        if(userError || !userData.user) {
-          alert('로그인 정보를 가져오지 못했습니다.');
-          return;
-        }
-
-        const { data: profile, error: profileError } = await supabase
-            .from('tb_user')
-            .select('*')
-            .eq('user_uuid', userData.user.id)
-            .maybeSingle()
-
-        if(profileError) {
-          console.info('profile error', profileError.message)
-          alert('프로필 정보를 가져오지 못했습니다.');
-          return;
-        }
-        
-        if (!profile) {
-          alert('가입된 정보가 없습니다.')
-          return
-        }
-
-        // 3) App에 알려서 home으로 전환
-        console.info('로그인 성공', profile.user_id, profile.nickname)
-        onLoginSuccess?.()
+        // 성공 시 profile 이 채워지고 AppRoute 가 WeatherMainView 로 전환
     }
-
-
 
     return (
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
             <View style={styles.container}>
-            <Text style={styles.brand}>yWeather</Text>
+            <Text style={styles.brand}>날씨 톡톡</Text>
 
             <TextInput
                 style={styles.input}
@@ -146,8 +110,4 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
       },
-
-
-
-
 })

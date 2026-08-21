@@ -2,9 +2,6 @@
 // 단기예보 → 일별(DailyItem[])
 const KMA_DAILY_URL = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst'
 
-const NX = 56
-const NY = 126
-
 // 단기예보 발표 시각 (이 값들만 허용) -> 확인필요
 const BASE_HOURS = [2, 5, 8, 11, 14, 17, 20, 23]
 
@@ -75,8 +72,10 @@ function formatDayLabel(fcstDate: string, index: number) {
 }
 
 
-export async function fetchVilageFcst(): Promise<DailyItem[]> {
-    
+export async function fetchVilageFcst(
+    nx: number,
+    ny: number,
+): Promise<DailyItem[]> {
     const serviceKey = process.env.EXPO_PUBLIC_KMA_SERVICE_KEY ?? ''
     if (!serviceKey) {
         throw new Error('EXPO_PUBLIC_KMA_SERVICE_KEY 가 없음')
@@ -88,7 +87,7 @@ export async function fetchVilageFcst(): Promise<DailyItem[]> {
     `serviceKey=${serviceKey}`
     + `&pageNo=1&numOfRows=1000&dataType=JSON`
     + `&base_date=${baseDate}&base_time=${baseTime}`
-    + `&nx=${NX}&ny=${NY}`
+    + `&nx=${nx}&ny=${ny}`
 
     const result = await fetch(`${KMA_DAILY_URL}?${query}`)
     const resultJson = await result.json()

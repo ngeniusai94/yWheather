@@ -2,10 +2,6 @@
 // 초단기실황 → 현재 날씨(WeatherData 형태)만 가져옴
 const KMA_NCST_URL = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst'
 
-//임시(상암동)
-const NX = 56
-const NY = 126
-
 /** base_date(YYYYMMDD), base_time(HH00) — 1시간 전 정각 */
 export function getNcstBaseDateTime(now = new Date()) {
     const d = new Date(now)
@@ -49,7 +45,11 @@ export type NcstWeather = {
 }
 
 /** 초단기실황 1회 호출 */
-export async function fetchUltraSrtNcst(): Promise<NcstWeather> {
+export async function fetchUltraSrtNcst (
+    nx: number,
+    ny: number,
+    location: string,
+): Promise<NcstWeather> {
     const serviceKey = process.env.EXPO_PUBLIC_KMA_SERVICE_KEY ?? ''
     if(!serviceKey) {
         throw new Error('EXPO_PUBLIC_KMA_SERVICE_KEY 가 없음')
@@ -62,10 +62,14 @@ export async function fetchUltraSrtNcst(): Promise<NcstWeather> {
         `serviceKey=${serviceKey}`
         + `&pageNo=1&numOfRows=100&dataType=JSON`
         + `&base_date=${baseDate}&base_time=${baseTime}`
-        + `&nx=${NX}&ny=${NY}`
+        + `&nx=${nx}&ny=${ny}`
 
-    const result = await fetch(`${KMA_NCST_URL}?${query}`)
+    const reqJson = `${KMA_NCST_URL}?${query}`
+    // console.log("기상청 요청 NCST URL: ", reqJson)
+
+    const result = await fetch(reqJson)
     const resultJson = await result.json()
+    // console.log(resultJson.response.body.items)
 
     const header = resultJson?.response?.header
     if(header?.resultCode !== '00') {
@@ -84,7 +88,7 @@ export async function fetchUltraSrtNcst(): Promise<NcstWeather> {
     const { summary, icon } = mapPty(pty, hour) // 요약/아이콘
 
     return {
-        location: '상암동',
+        location: location,
         temperature,
         summary,
         icon,

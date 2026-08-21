@@ -2,10 +2,6 @@
 
 const KMA_FCST_URL = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst'
 
-//임시(상암동)
-const NX = 56
-const NY = 126
-
 export type HourlyItem = {
     time: string
     temp: number
@@ -62,7 +58,10 @@ function formatTimeLabel(fcstTime: string) {
     return `${Number(hour)}시`
 }
 
-export async function fetchUltraSrtFcst(): Promise<HourlyItem[]> {
+export async function fetchUltraSrtFcst(
+    nx: number,
+    ny: number,
+): Promise<HourlyItem[]> {
     
     const serviceKey = process.env.EXPO_PUBLIC_KMA_SERVICE_KEY ?? ''
     if(!serviceKey) {
@@ -75,7 +74,7 @@ export async function fetchUltraSrtFcst(): Promise<HourlyItem[]> {
         `serviceKey=${serviceKey}`
         +`&pageNo=1&numOfRows=60&dataType=JSON`
         +`&base_date=${baseDate}&base_time=${baseTime}`
-        +`&nx=${NX}&ny=${NY}`
+        +`&nx=${nx}&ny=${ny}`
 
     const result = await fetch(`${KMA_FCST_URL}?${query}`)
     const resultJson = await result.json()

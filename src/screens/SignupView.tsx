@@ -43,8 +43,18 @@ export default function SignupView({ onCancel, onSignupSuccess }: SignupViewProp
         return
     }
 
+    // 고객번호 채번 (DB: fn_next_user_srno — RLS 우회를 위해 security definer 권장)
+    const { data: userSrno, error: srnoError } = await supabase.rpc('fn_next_user_srno')
+    if (srnoError || !userSrno) {
+        console.info('고객번호 채번 실패:', srnoError?.message ?? '결과 없음')
+        alert('회원가입에 실패했습니다. 다른 아이디로 시도해주세요.')
+        return
+    }
+    const nextUserSrno = userSrno as string
+
     const { error: profileError } = await supabase.from('tb_user').insert({
         user_uuid: userUuid,
+        user_srno: nextUserSrno,
         user_id: email,
         nickname: nickname.trim() || '',
     })
@@ -55,7 +65,7 @@ export default function SignupView({ onCancel, onSignupSuccess }: SignupViewProp
         return
     }
 
-    console.info('회원가입 성공', data.user?.id)
+    console.info('회원가입 성공', data.user?.id, nextUserSrno)
 
     Alert.alert('회원가입 완료', '로그인 해주세요.', [
         {
