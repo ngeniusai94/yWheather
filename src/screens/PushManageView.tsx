@@ -18,6 +18,7 @@ import PushFormView from './PushFormView'
 import {
   formatPushDaysLabel,
   formatPushSendTm,
+  shouldShowPushDaysHint,
   listPushSchedules,
   PushScheduleRow,
   updatePushUseYn,
@@ -158,7 +159,9 @@ export default function PushManageView({ onClose }: PushManageViewProps) {
                         )
                       })}
                     </View>
-                    <Text style={styles.daysHint}>{formatPushDaysLabel(row.push_days)}</Text>
+                    {shouldShowPushDaysHint(row.push_days) ? (
+                      <Text style={styles.daysHint}>{formatPushDaysLabel(row.push_days)}</Text>
+                    ) : null}
                   </Pressable>
                 </View>
               )

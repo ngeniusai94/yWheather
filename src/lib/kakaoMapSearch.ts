@@ -2,6 +2,7 @@
 // 카카오 로컬 API(키워드로 장소 검색) → 검색 결과 목록
 
 const KAKAO_SEARCH_URL = 'https://dapi.kakao.com/v2/local/search/address.json'
+const KAKAO_COORD_URL = 'https://dapi.kakao.com/v2/local/geo/coord2address.json'
 
 // 카카오 응답 원본 형태 (필요한 필드만 정의)
 type KakaoDocument = {
@@ -76,4 +77,29 @@ export async function searchPlaceByKeyword(keyword: string): Promise<SearchedPla
 
     // 같은 주소가 여러 후보 요청에서 중복으로 나올 수 있으니 address 기준으로 제거
     return Array.from(new Map(places.map((p) => [p.address, p])).values())
+}
+
+/** 위경도 → 동 이름/주소 (GPS용) */
+export async function fetchAddressByCoord(
+    lat: number,
+    lng: number,
+): Promise<{ name: string; address: string } | null> {
+    const restApiKey = process.env.EXPO_PUBLIC_KAKAO_REST_KEY ?? ''
+    if (!restApiKey) return null
+
+    const query = `x=${encodeURIComponent(String(lng))}&y=${encodeURIComponent(String(lat))}`
+    const result = await fetch(`${KAKAO_COORD_URL}?${query}`, {
+        headers: { Authorization: `KakaoAK ${restApiKey}` },
+    })
+    if (!result.ok) return null
+
+    const resultJson = await result.json()
+    const doc = resultJson?.documents?.[0]
+    if (!doc) return null
+
+    const addressName = doc.address?.address_name ?? doc.road_address?.address_name
+    if (!addressName) return null
+
+    const name = doc.address?.region_3depth_name || extractDongName(addressName)
+    return { name, address: addressName }
 }

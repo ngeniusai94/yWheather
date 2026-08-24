@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { Modal, ActivityIndicator, View, StyleSheet } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import LoginView from './src/screens/LoginView';
 import SignupView from './src/screens/SignupView'
 import WeatherMainView from './src/screens/WeatherMainView'
@@ -8,6 +8,7 @@ import SearchAreaView from './src/screens/SearchAreaView'
 import MenuView from './src/screens/MenuView'
 import PushManageView from './src/screens/PushManageView'
 import { AuthProvider, useAuth } from './src/lib/AuthContext'
+import { DEFAULT_AREA, fetchGpsArea, WeatherArea } from './src/lib/currentArea'
 
 // Provider 안에서만 useAuth 를 쓸 수 있어서 화면 분기는 안쪽으로 분리
 export default function App() {
@@ -25,8 +26,32 @@ function AppRoute() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isPushManageOpen, setIsPushManageOpen] = useState(false)
 
-  //임시값
-  const [area, setArea] = useState({ name: '상암동', nx: 56, ny: 126 })
+  const [area, setArea] = useState<WeatherArea | null>(null)
+  const [isSearchArea, setIsSearchArea] = useState(false)
+  const isSearchAreaRef = useRef(false)
+
+  // 검색으로 고른 지역이 없을 때만 GPS
+  useEffect(() => {
+    if (!profile) {
+      isSearchAreaRef.current = false
+      setIsSearchArea(false)
+      setArea(null)
+      return
+    }
+    if (isSearchArea) return
+
+    let cancelled = false
+    const loadGpsArea = async () => {
+      const gpsArea = await fetchGpsArea()
+      if (cancelled) return
+      if (isSearchAreaRef.current) return
+      setArea(gpsArea ?? DEFAULT_AREA)
+    }
+    loadGpsArea()
+    return () => {
+      cancelled = true
+    }
+  }, [profile, isSearchArea])
 
   // 세션 + tb_user 확인 전 — 로그인 화면이 깜빡이지 않게 스피너
   if (!isReady) {
@@ -51,6 +76,14 @@ function AppRoute() {
 
   // 로그인한 적 있고 세션이 살아 있으면 profile 이 채워짐 → 홈
   if (profile) {
+    if (!area) {
+      return (
+        <View style={styles.boot}>
+          <ActivityIndicator color="#111111" />
+        </View>
+      )
+    }
+
     return (
       <>
         <WeatherMainView 
@@ -66,6 +99,8 @@ function AppRoute() {
           >
           <SearchAreaView
             onSelect={(selected) => {
+              isSearchAreaRef.current = true
+              setIsSearchArea(true)
               setArea(selected)
               setIsSearchOpen(false)
             }}
@@ -106,6 +141,8 @@ function AppRoute() {
       <>
         <SearchAreaView 
           onSelect={(selected) => {
+            isSearchAreaRef.current = true
+            setIsSearchArea(true)
             setArea(selected)
             setScreen('home')
           }}

@@ -1,47 +1,62 @@
 import { supabase } from "../lib/supabaseClient";
 import { StatusBar, ScrollView, StyleSheet, Text, Pressable, View, ActivityIndicator } from "react-native";
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { useEffect, useState } from "react";
-import { fetchUltraSrtNcst, NcstWeather } from "../lib/kmaNcst";
-import { fetchUltraSrtFcst } from "../lib/kmaFcst";
-import { fetchVilageFcst } from "../lib/kmaDaily";
+import { LinearGradient } from 'expo-linear-gradient'
+import { useEffect, useRef, useState } from "react";
+import { fetchUltraSrtNcst, formatKmaBaseLabel, getNcstBaseDateTime } from "../lib/kmaNcst";
+import { fetchUltraSrtFcst, getFcstBaseDateTime } from "../lib/kmaFcst";
+import { getVilageBaseDateTime } from "../lib/kmaDaily";
+import { fetchWeekDaily } from "../lib/kmaMid";
+import WeatherFxLayer from "../components/WeatherFxLayer";
 
 type WeatherMainViewProps = {
-    area: { name: string, nx: number, ny:number }
+    area: { name: string, nx: number, ny:number, address?: string }
     onSearchPress:() => void;
     onMenuPress: () => void
 }
 
-type WeatherTheme = 'sunny' | 'cloudy' | 'rain' | 'night'
+type WeatherTheme = 'sunny' | 'cloudy' | 'rain' | 'snow' | 'night'
 
-// summary → 테마 (나중에 API 코드로 교체)
+// summary → 테마 (비/눈은 비 테마, 눈만 눈 테마)
 const getTheme = (summary: string): WeatherTheme => {
-    if (summary.includes('비')) return 'rain'
+    if (summary === '눈') return 'snow'
+    if (summary.includes('비') || summary === '소나기') return 'rain'
     if (summary.includes('흐림') || summary.includes('구름')) return 'cloudy'
     if (summary.includes('밤')) return 'night'
     return 'sunny'
 }
 
 type ThemeColors = {
-    bg: string
+    gradient: readonly [string, string]
+    card: string
     text: string
     muted: string
-    border: string
 }
 const themeColors: Record<WeatherTheme, ThemeColors> = {
-    sunny:  { bg: '#7EC8E3', text: '#111111', muted: '#3d3d3d', border: '#111111' },
-    cloudy: { bg: '#A8B0B8', text: '#111111', muted: '#3d3d3d', border: '#111111' },
-    rain:   { bg: '#4A6FA5', text: '#ffffff', muted: '#d0d0d0', border: '#ffffff' },
-    night:  { bg: '#1A1A2E', text: '#ffffff', muted: '#b0b0b0', border: '#ffffff' },
+    sunny:  { gradient: ['#5BB4E0', '#D2F0FA'], card: 'rgba(255,255,255,0.72)', text: '#16324A', muted: '#4A6678' },
+    cloudy: { gradient: ['#8A96A3', '#D5DCE2'], card: 'rgba(255,255,255,0.72)', text: '#1C2430', muted: '#5A6570' },
+    rain:   { gradient: ['#3A5578', '#7A97B4'], card: 'rgba(255,255,255,0.72)', text: '#ffffff', muted: '#E4EAF0' },
+    snow:   { gradient: ['#9EC4E0', '#D8E8F4'], card: 'rgba(255,255,255,0.74)', text: '#1E3A4F', muted: '#5A7386' },
+    night:  { gradient: ['#0A1728', '#243B5A'], card: 'rgba(255,255,255,0.72)', text: '#ffffff', muted: '#D0D7E0' },
 }
 
 const weatherIconName: Record<string, keyof typeof Ionicons.glyphMap> = {
     sunny: 'sunny',
     cloud: 'cloudy',
     rain: 'rainy',
+    snow: 'snow',
     moon: 'moon',
 }
 type WeatherIconKey = keyof typeof weatherIconName
+
+// 테마(또는 테스트 오버라이드)에 맞춰 히어로 아이콘
+const themeHeroIcon: Record<WeatherTheme, WeatherIconKey> = {
+    sunny: 'sunny',
+    cloudy: 'cloud',
+    rain: 'rain',
+    snow: 'snow',
+    night: 'moon',
+}
 
 type CurrentData = {
     location: string
@@ -60,26 +75,57 @@ type HourlyItem = {
 
 type DailyItem = {
     day : string
+    dateMd : string
     high : number
     low : number
     icon : string
+    summary : string
+    pop : number
 }
 
-//가짜API가 돌려줄 전체묶음
+// 가짜API가 돌려줄 전체묶음
 type CurrentResponse = {
-    current : CurrentData
-    hourly : HourlyItem[]
-    daily : DailyItem[]
+    current: CurrentData
+    hourly: HourlyItem[]
+    daily: DailyItem[]
 }
 
-async function fetchWeather(nx: number, ny: number, location: string): Promise<CurrentResponse> {
+/** 테마 테스트: 'sunny' | 'cloudy' | 'rain' | 'snow' | 'night' 넣으면 API 무시 */
+const DEBUG_THEME: WeatherTheme | null = null
+const THEME_CYCLE: WeatherTheme[] = ['sunny', 'cloudy', 'rain', 'snow', 'night']
+
+type BaseInfoTipProps = {
+    label: string
+    isOpen: boolean
+    onPress: () => void
+}
+
+function BaseInfoTip({ label, isOpen, onPress }: BaseInfoTipProps) {
+    return (
+        <View style={styles.infoWrap}>
+            <Pressable onPress={onPress} hitSlop={8} style={styles.infoBtn}>
+                <Ionicons name="information-circle-outline" size={16} color="#8A929A" />
+            </Pressable>
+            {isOpen ? (
+                <Text style={styles.infoLabel}>{label}</Text>
+            ) : null}
+        </View>
+    )
+}
+
+async function fetchWeather(
+    nx: number,
+    ny: number,
+    locationName: string,
+    areaText: string,
+): Promise<CurrentResponse> {
     const [current, hourly, daily] = await Promise.all([
-        fetchUltraSrtNcst(nx, ny, location),
+        fetchUltraSrtNcst(nx, ny, locationName),
         fetchUltraSrtFcst(nx, ny).catch((error) => {
             console.error('시간별 예보 실패:', error)
             return [] as HourlyItem[]
         }),
-        fetchVilageFcst(nx, ny).catch((error) => {
+        fetchWeekDaily(nx, ny, areaText).catch((error) => {
             console.error('일별 예보 실패', error)
             return [] as DailyItem[]
         }),
@@ -93,6 +139,9 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
     const [current, setCurrent] = useState<CurrentData | null>(null)
     const [hourly, setHourly] = useState<HourlyItem[]>([])
     const [daily, setDaily] = useState<DailyItem[]>([])
+    const [themeOverride, setThemeOverride] = useState<WeatherTheme | null>(DEBUG_THEME)
+    const [openBaseInfo, setOpenBaseInfo] = useState<'hourly' | 'daily' | null>(null)
+    const infoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // true면 스피너, false면 본문
     const [isLoading, setIsLoading] = useState(true)
@@ -110,10 +159,15 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
                 setIsLoading(true)
                 setErrorMessage(null)
 
-                const data = await fetchWeather(area.nx, area.ny, area.name)
-                setCurrent(data.current)// 받은 값으로 state 갱신 → 화면 다시 그림
-                setHourly(data.hourly)
-                setDaily(data.daily)
+                const data = await fetchWeather(
+                    area.nx,
+                    area.ny,
+                    area.name,
+                    area.address ?? area.name,
+                )
+                setCurrent(data.current) // 받은 값으로 state 갱신 → 화면 다시 그림
+                setHourly(Array.isArray(data.hourly) ? data.hourly : [])
+                setDaily(Array.isArray(data.daily) ? data.daily : [])
             } catch (error) {
                 console.error('날씨 로드 실패:', error)
                 setErrorMessage('날씨를 불러오지 못했습니다.')
@@ -122,14 +176,37 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
             }
         }
         loadWeather()
+        return () => {
+            if (infoTimerRef.current) {
+                clearTimeout(infoTimerRef.current)
+            }
+        }
     }, [area]) // [] = 마운트 때 한번만
+
+    const clearInfoTimer = () => {
+        if (infoTimerRef.current) {
+            clearTimeout(infoTimerRef.current)
+            infoTimerRef.current = null
+        }
+    }
+
+    const showBaseInfo = (key: 'hourly' | 'daily') => {
+        clearInfoTimer()
+        if (openBaseInfo === key) {
+            setOpenBaseInfo(null)
+            return
+        }
+        setOpenBaseInfo(key)
+        // infoTimerRef.current = setTimeout(() => {
+        //     setOpenBaseInfo(null)
+        // }, 2500)
+    }
 
     // ----- 로딩 중: 본문 대신 스피너 -----
     // weather가 null인데 본문을 그리면 .location 접근 시 런타임 에러
     if(isLoading || !current) {
         return (
             <View style={styles.loading}>
-                {/* 돌고 있는 로딩 표시 */}
                 <ActivityIndicator size="large" color="#6b6b6b" />
                 <Text style={styles.txtLoading}>날씨 정보를 불러오는 중...</Text>
             </View>
@@ -140,7 +217,7 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
         return (
             <View style={styles.loading}>
                 <Text style={styles.txtLoading}>
-                    {errorMessage || '날씨 정보를 불러오지 못했습니다.'}
+                    {errorMessage || '날씨를 불러오지 못했습니다.'}
                 </Text>
             </View>
         )
@@ -148,63 +225,166 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
 
     // ----- 데이터 도착 후: 테마 계산 -----
     // 반드시 weather가 있을 때만 여기 도달
-    const theme = getTheme(current.summary)
+    const theme = themeOverride ?? getTheme(current.summary)
     const thmColors = themeColors[theme]
+
+    const cycleTheme = () => {
+        const currentIndex = themeOverride
+            ? THEME_CYCLE.indexOf(themeOverride)
+            : THEME_CYCLE.indexOf(getTheme(current.summary))
+        const nextIndex = (currentIndex + 1) % THEME_CYCLE.length
+        setThemeOverride(THEME_CYCLE[nextIndex])
+    }
 
     // 어두운 배경 테마면 흰 아이콘
     const isDarkTheme = theme === 'night' || theme === 'rain'
 
+    const ncstBase = getNcstBaseDateTime()
+    const fcstBase = getFcstBaseDateTime()
+    const vilageBase = getVilageBaseDateTime()
+    const ncstBaseLabel = formatKmaBaseLabel(ncstBase.baseDate, ncstBase.baseTime)
+    const hourlyBaseLabel = formatKmaBaseLabel(fcstBase.baseDate, fcstBase.baseTime)
+    const dailyBaseLabel = formatKmaBaseLabel(vilageBase.baseDate, vilageBase.baseTime)
+
     const currentHigh = daily[0]?.high ?? current.high
     const currentLow = daily[0]?.low ?? current.low
+
+    const heroIconKey = themeHeroIcon[theme]
+    const mainIcon = weatherIconName[heroIconKey]
+    const mainIconColor = heroIconKey === 'sunny' ? '#F5C518' : '#ffffff'
 
     return (
         <>
             <StatusBar barStyle={isDarkTheme ? 'light-content' : 'dark-content'} />
-            <ScrollView style={[styles.scroll, { backgroundColor: thmColors.bg }]}
-            contentContainerStyle={styles.content}>
-                
-                {/* 검색돋보기 */}
-                <View style={styles.headerRow}>
-                    <Pressable onPress={onMenuPress} hitSlop={8}>
-                        <Ionicons name="menu" size={22} color={thmColors.text} />
-                    </Pressable>
-                    <Text style={[styles.location, { color: thmColors.text }]}>{current.location}</Text>
-                    <Pressable onPress={onSearchPress} hitSlop={8}>
-                        <Ionicons name="search" size={22} color={thmColors.text} />
-                    </Pressable>
-                </View>
-                
-                {/* <Text style={[styles.location, { color: thmColors.text }]}>{current.location}</Text> */}
-                <Text style={[styles.temperature, { color: thmColors.text }]}>{current.temperature}°</Text>
-                <Text style={[styles.summary, { color: thmColors.text }]}>{current.summary}</Text>
-                <Ionicons name={weatherIconName[current.icon as WeatherIconKey] ?? 'partly-sunny'} size={48} color={thmColors.text}/>
-                <Text style={[styles.highLow, { color: thmColors.muted }]}>최저 {currentLow}° / 최고 {currentHigh}°</Text>
+            <LinearGradient
+                colors={thmColors.gradient}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.gradient}
+            >
+                <WeatherFxLayer key={theme} theme={theme} />
+                <ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={styles.content}
+                >
+                    {/* 메뉴 | 지역(롱프레스=테마 테스트) | 검색 */}
+                    <View style={styles.headerRow}>
+                        <Pressable onPress={onMenuPress} hitSlop={8} style={styles.headerSide}>
+                            <Ionicons name="menu" size={24} color={thmColors.text} />
+                        </Pressable>
+                        <Pressable
+                            onLongPress={cycleTheme}
+                            hitSlop={8}
+                            style={styles.locationBtn}
+                        >
+                            <Text
+                                style={[styles.location, { color: thmColors.text }]}
+                                numberOfLines={1}
+                            >
+                                {current.location}
+                            </Text>
+                            <Ionicons name="location-sharp" size={15} color={thmColors.text} />
+                        </Pressable>
+                        <Pressable onPress={onSearchPress} hitSlop={8} style={styles.headerSide}>
+                            <Ionicons name="search" size={24} color={thmColors.text} />
+                        </Pressable>
+                    </View>
 
-                {/* 시간별 */}
-                <Text style={[styles.sectionTitle, {color: thmColors.text}]}>시간별 예보</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourlyRow}>
-                    {hourly.map((item) => (
-                        <View key={item.time} style={styles.hourlyItem}>
-                            <Text style={[styles.hourlyTime, { color: thmColors.muted }]}>{item.time}</Text>
-                            <Ionicons name={weatherIconName[item.icon as WeatherIconKey] ?? 'partly-sunny'} size={24} color={thmColors.text}/>
-                            <Text style={[styles.hourlyTemp, { color: thmColors.text }]}>{item.temp}°</Text>
+                    {/* 큰 아이콘 | 온도 + 최저·최고 */}
+                    <View style={styles.heroRow}>
+                        <View style={styles.heroIconCol}>
+                            <Text style={[styles.baseLabel, { color: thmColors.muted }]}>
+                                {ncstBaseLabel}
+                            </Text>
+                            <Ionicons name={mainIcon} size={120} color={mainIconColor} />
                         </View>
-                    ))}
-                </ScrollView>
-
-                {/* 일별 */}
-                <Text style={[styles.sectionTitle, { color: thmColors.text }]}>일별 예보</Text>
-                {daily.map((item) => (
-                    <View key={item.day} style={[styles.dailyRow, { borderBottomColor: thmColors.muted }]}>
-                        <Text style={[styles.dailyDay, { color: thmColors.text }]}>{item.day}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Ionicons name={weatherIconName[item.icon as WeatherIconKey] ?? 'partly-sunny'} size={24} color={thmColors.text}/>
-                            <Text style={[styles.dailyTemp, { color: thmColors.muted }]}>{item.low}° / {item.high}°</Text>
+                        <View style={styles.tempCol}>
+                            <Text style={[styles.temperature, { color: thmColors.text }]}>
+                                {Math.round(current.temperature)}°
+                            </Text>
+                            <Text style={[styles.highLow, { color: thmColors.muted }]}>
+                                최저 {currentLow}°   최고 {currentHigh}°
+                            </Text>
                         </View>
                     </View>
-                ))}
 
-            </ScrollView>
+                    <View style={[styles.glassCard, { backgroundColor: thmColors.card }]}>
+                        <View style={styles.sectionTitleRow}>
+                            <Text style={styles.sectionTitle}>시간별 예보</Text>
+                            <BaseInfoTip
+                                label={hourlyBaseLabel}
+                                isOpen={openBaseInfo === 'hourly'}
+                                onPress={() => showBaseInfo('hourly')}
+                            />
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourlyRow}>
+                            {hourly.map((item) => (
+                                <View key={item.time} style={styles.hourlyItem}>
+                                    <Text style={styles.hourlyTime}>{item.time}</Text>
+                                    <Ionicons
+                                        name={weatherIconName[item.icon as WeatherIconKey] ?? 'partly-sunny'}
+                                        size={28}
+                                        color="#2C3A47"
+                                    />
+                                    <Text style={styles.hourlyTemp}>{Math.round(item.temp)}°</Text>
+                                </View>
+                            ))}
+                        </ScrollView>
+                    </View>
+
+                    <View style={[styles.glassCard, styles.dailyCard, { backgroundColor: thmColors.card }]}>
+                        <View style={styles.sectionTitleRow}>
+                            <Text style={styles.sectionTitle}>주간 예보</Text>
+                            <BaseInfoTip
+                                label={dailyBaseLabel}
+                                isOpen={openBaseInfo === 'daily'}
+                                onPress={() => showBaseInfo('daily')}
+                            />
+                        </View>
+                        <View style={styles.dailyList}>
+                            <View style={[styles.dailyRow, styles.dailyHeadRow]}>
+                                <View style={styles.dailyDayCol}>
+                                    <Text style={styles.dailyHeadText}>날짜</Text>
+                                </View>
+                                <View style={styles.dailyIconWrap}>
+                                    <Text style={styles.dailyHeadText}>날씨</Text>
+                                </View>
+                                <Text style={[styles.dailyPop, styles.dailyHeadText]}>강수확률</Text>
+                                <View style={styles.dailyTemps}>
+                                    <Text style={[styles.dailyLow, styles.dailyHeadText]}>최저</Text>
+                                    <Text style={[styles.dailyHigh, styles.dailyHeadText]}>최고</Text>
+                                </View>
+                            </View>
+                            {daily.map((item, index) => (
+                                <View
+                                    key={`${item.day}-${item.dateMd}-${index}`}
+                                    style={[
+                                        styles.dailyRow,
+                                        index === daily.length - 1 && styles.dailyRowLast,
+                                    ]}
+                                >
+                                    <View style={styles.dailyDayCol}>
+                                        <Text style={styles.dailyDay}>{item.day}</Text>
+                                        <Text style={styles.dailyDate}>{item.dateMd}</Text>
+                                    </View>
+                                    <View style={styles.dailyIconWrap}>
+                                        <Ionicons
+                                            name={weatherIconName[item.icon as WeatherIconKey] ?? 'partly-sunny'}
+                                            size={22}
+                                            color="#2C3A47"
+                                        />
+                                    </View>
+                                    <Text style={styles.dailyPop}>{item.pop}%</Text>
+                                    <View style={styles.dailyTemps}>
+                                        <Text style={styles.dailyLow}>{item.low}°</Text>
+                                        <Text style={styles.dailyHigh}>{item.high}°</Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                </ScrollView>
+            </LinearGradient>
         </>
     )
 
@@ -212,112 +392,219 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
 
 const styles = StyleSheet.create({
     headerRow: {
-        alignSelf: 'stretch',            // 가로 폭 꽉 채움
-        flexDirection: 'row',            // 스페이서 - 지역명 - 아이콘 가로 배치
+        alignSelf: 'stretch',
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 8,
+        marginBottom: 28,
     },
-    headerSpacer: {
-        width: 22,                       // 오른쪽 아이콘(size=22)과 같은 폭 → 가운데 정렬 맞춤용
-    },    
+    headerSide: {
+        width: 32,
+        alignItems: 'center',
+    },
+    locationBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+    },
+    gradient: {
+        flex: 1,
+    },
     scroll: {
-        flex: 1,                 // 화면 높이 꽉 채움
-        backgroundColor: '#ffffff', // 배경 화이트 (테마는 나중에)
+        flex: 1,
+        backgroundColor: 'transparent',
     },
     content: {
-        flexGrow: 1,             // 짧은 내용도 화면 높이까지 확장
-        paddingHorizontal: 24,   // 좌우 안여백
-        paddingTop: 80,          // 위 안여백
-        paddingBottom: 40,       // 아래 안여백
-        alignItems: 'center',    // 자식 가로 중앙 정렬
+        flexGrow: 1,
+        paddingHorizontal: 22,
+        paddingTop: 68,
+        paddingBottom: 18,
     },
     location: {
-        fontSize: 28,            // 글자 크기
-        fontWeight: '600',       // 글자 두께
-        color: '#111111',        // 글자색 검정
-        marginBottom: 8,         // 아래 바깥 간격
+        fontSize: 20,
+        fontWeight: '600',
+        letterSpacing: 0.2,
+        color: '#111111',
+        textAlign: 'center',
+    },
+    heroRow: {
+        alignSelf: 'stretch',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 28,
+        paddingHorizontal: 8,
+    },
+    heroIconCol: {
+        alignItems: 'center',
+    },
+    baseLabel: {
+        fontSize: 12,
+        letterSpacing: 0.2,
+        marginBottom: 6,
+    },
+    tempCol: {
+        alignItems: 'flex-end',
     },
     temperature: {
-        fontSize: 96,            // 큰 온도
-        fontWeight: '200',       // 얇은 글씨 (iOS 날씨 느낌)
-        color: '#111111',        // 글자색 검정
-    },
-    summary: {
-        fontSize: 20,            // 글자 크기
-        color: '#111111',        // 글자색 검정
-        marginTop: 4,            // 위 바깥 간격
+        fontSize: 88,
+        fontWeight: '200',
+        letterSpacing: -2,
+        color: '#111111',
+        lineHeight: 94,
     },
     highLow: {
-        fontSize: 16,            // 글자 크기
-        color: '#6b6b6b',        // 글자색 회색
-        marginTop: 8,            // 위 바깥 간격
+        fontSize: 16,
+        letterSpacing: 0.3,
+        color: '#6b6b6b',
+        marginTop: 2,
     },
-    btnLogout: {
-        marginTop: 48,           // 위 바깥 간격
-        borderWidth: 1,          // 테두리 두께
-        borderColor: '#111111',  // 테두리 색 검정
-        borderRadius: 8,         // 모서리 둥글기
-        paddingVertical: 12,     // 위아래 안여백
-        paddingHorizontal: 20,   // 좌우 안여백
+    glassCard: {
+        alignSelf: 'stretch',
+        borderRadius: 24,
+        paddingHorizontal: 18,
+        paddingTop: 16,
+        paddingBottom: 18,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.55)',
+        shadowColor: '#1A334C',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        elevation: 3,
     },
-    txtLogout: {
-        color: '#111111',        // 글자색 검정
-        fontSize: 14,            // 글자 크기
-        fontWeight: '600',       // 글자 두께
+    dailyCard: {
+        flex: 1,
+        marginBottom: 0,
+        paddingBottom: 20,
+    },
+    dailyList: {
+        flex: 1,
+        justifyContent: 'space-evenly',
+    },
+    sectionTitleRow: {
+        alignSelf: 'stretch',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginBottom: 12,
     },
     sectionTitle: {
-        alignSelf: 'flex-start', // 왼쪽 정렬 (부모 center여도)
-        fontSize: 16,            // 글자 크기
-        fontWeight: '600',       // 글자 두께
-        color: '#111111',        // 글자색 검정
-        marginTop: 32,           // 위 바깥 간격
-        marginBottom: 12,        // 아래 바깥 간격
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#2C3A47',
+    },
+    infoWrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexShrink: 1,
+    },
+    infoBtn: {
+        padding: 2,
+    },
+    infoLabel: {
+        marginLeft: 4,
+        fontSize: 11,
+        color: '#9AA3AB',
+        letterSpacing: 0.1,
     },
     hourlyRow: {
-        alignSelf: 'stretch',    // 가로 폭을 부모에 맞춤
-        flexGrow: 0,   // 가로 스크롤이 세로로 늘어나지 않게 (시간별~일별 사이 공백 방지)
+        alignSelf: 'stretch',
+        flexGrow: 0,
     },
     hourlyItem: {
-        width: 64,               // 칸 너비
-        alignItems: 'center',    // 칸 안 가로 중앙
-        marginRight: 8,          // 오른쪽 간격
+        width: 58,
+        alignItems: 'center',
+        marginRight: 10,
     },
     hourlyTime: {
         fontSize: 13,
-        color: '#6b6b6b',        // 회색
+        color: '#6B7784',
         marginBottom: 8,
     },
     hourlyTemp: {
         fontSize: 18,
-        fontWeight: '500',
-        marginTop: 6,  // 아이콘과 온도 사이
+        fontWeight: '600',
+        marginTop: 8,
+        color: '#1E2A34',
     },
     dailyRow: {
-        alignSelf: 'stretch',           // 가로 폭을 부모에 맞춤
-        flexDirection: 'row',           // 가로로 배치
-        justifyContent: 'space-between',// 양끝 정렬
-        paddingVertical: 10,            // 위아래 안여백
-        borderBottomWidth: 1,           // 아래 구분선 두께
-        borderBottomColor: '#eeeeee',   // 구분선 색
+        alignSelf: 'stretch',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 10,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: 'rgba(44,58,71,0.08)',
+    },
+    dailyHeadRow: {
+        paddingVertical: 4,
+        paddingBottom: 6,
+        borderBottomColor: 'rgba(44,58,71,0.12)',
+    },
+    dailyHeadText: {
+        fontSize: 10,
+        fontWeight: '500',
+        color: '#9AA3AB',
+    },
+    dailyDayCol: {
+        width: 48,
     },
     dailyDay: {
         fontSize: 16,
-        color: '#111111',
+        fontWeight: '600',
+        color: '#2C3A47',
     },
-    dailyTemp: {
+    dailyDate: {
+        fontSize: 11,
+        color: '#8A929A',
+        marginTop: 1,
+    },
+    dailyIconWrap: {
+        flex: 1,
+        alignItems: 'center',
+    },
+    dailyPop: {
+        width: 58,
+        fontSize: 13,
+        color: '#5B8FBF',
+        textAlign: 'center',
+        marginRight: 8,
+    },
+    dailyTemps: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    dailyLow: {
+        width: 36,
         fontSize: 16,
-        color: '#6b6b6b',
+        color: '#7A8793',
+        textAlign: 'right',
+    },
+    dailyHigh: {
+        width: 36,
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1E2A34',
+        textAlign: 'right',
+    },
+    dailyRowLast: {
+        borderBottomWidth: 0,
     },
     loading: {
-        flex: 1,                    // 화면 전체
-        justifyContent: 'center',   // 세로 중앙
-        alignItems: 'center',       // 가로 중앙
-        backgroundColor: '#111111', // 배경 검정
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#E8F4FA',
     },
     txtLoading: {
         marginTop: 12,
         fontSize: 14,
-        color: '#ffffff',
+        color: '#3d3d3d',
     },
 })

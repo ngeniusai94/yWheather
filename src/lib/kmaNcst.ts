@@ -1,12 +1,16 @@
 // src/lib/kmaNcst.ts
 // 초단기실황 → 현재 날씨(WeatherData 형태)만 가져옴
+import { mapNcstPty } from './kmaSkyPty'
+
 const KMA_NCST_URL = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst'
 
-/** base_date(YYYYMMDD), base_time(HH00) — 1시간 전 정각 */
+/** 이번 시 정각. 정각 후 10분 미만이면 1시간 전 정각 */
 export function getNcstBaseDateTime(now = new Date()) {
     const d = new Date(now)
-    d.setMinutes(0,0,0) //분(0~59), 초(0~59), 밀리초(0~999)
-    d.setHours(d.getHours() - 1) //발표 직후 NO_DATA방지
+    if (d.getMinutes() < 10) {
+        d.setHours(d.getHours() - 1)
+    }
+    d.setMinutes(0, 0, 0)
 
     const yyyy = d.getFullYear()
     const mm = String(d.getMonth() + 1).padStart(2, '0')
@@ -19,15 +23,14 @@ export function getNcstBaseDateTime(now = new Date()) {
     }
 }
 
-/** PTY 코드 → 화면용 요약/아이콘 */
-function mapPty(pty: string, hour: number) {
-    if(hour >= 19 || hour < 6) {
-        return {summary: '밤', icon: 'moon' as const}
-    }
-    if(pty !== '0') {
-        return {summary: '비', icon: 'rain' as const}
-    }
-    return {summary: '맑음', icon: 'sunny' as const}
+/** 20260823 + 1400 → 26.08.23 14:00 기준 */
+export function formatKmaBaseLabel(baseDate: string, baseTime: string) {
+    const yy = baseDate.slice(2, 4)
+    const mm = baseDate.slice(4, 6)
+    const dd = baseDate.slice(6, 8)
+    const hh = baseTime.slice(0, 2)
+    const mi = baseTime.slice(2, 4).padEnd(2, '0')
+    return `${yy}.${mm}.${dd} ${hh}:${mi} 기준`
 }
 
 type NcstItem = {
@@ -85,7 +88,7 @@ export async function fetchUltraSrtNcst (
     const temperature = Number(byCategory.T1H) // 기온
     const pty = byCategory.PTY ?? '0' // 강수량
     const hour = new Date().getHours() // 현재 시간
-    const { summary, icon } = mapPty(pty, hour) // 요약/아이콘
+    const { summary, icon } = mapNcstPty(pty, hour) // PTY 우선, 없으면 밤/맑음
 
     return {
         location: location,

@@ -1,4 +1,8 @@
-// 초단기예보 → 시간별(HourlyItem[]) 
+// 초단기예보 → 시간별(HourlyItem[])
+import { mapSkyPty } from './kmaSkyPty'
+
+/** 초단기는 보통 6시간. 이 숫자만 바꾸면 화면 칸 수가 조절됨 */
+export const HOURLY_MAX_COUNT = 6
 
 const KMA_FCST_URL = 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst'
 
@@ -15,13 +19,21 @@ type FcstItem = {
     fcstValue: string
 }
 
-/** 초단기예보 base: 매시 30분 발표, 안전하게 하나 이전 슬롯 */
+/**
+ * 초단기예보 base_date / base_time
+ *
+ * 실황과 다르다. 예보 API는 HH30만 받는다 (1700 넣으면 NO_DATA).
+ * - 발표: 매시 30분
+ * - 조회 가능: 보통 매시 45분부터
+ *
+ * 예) 18:10 → 1730 / 18:40 → 1730 / 18:45 → 1830
+ */
 export function getFcstBaseDateTime(now = new Date()) {
     const d = new Date(now)
     const minute = d.getMinutes()
 
-    // 30분 이전이면 한 시간 전 30분, 아니면 이번 시 30분 → 여유 있게 1슬롯 전
-    if(minute < 30) {
+    // 45분 전에는 이번 시 30분 자료를 아직 못 받음 → 1시간 전 30분
+    if (minute < 45) {
         d.setHours(d.getHours() - 1)
     }
     d.setMinutes(30, 0, 0)
@@ -33,24 +45,8 @@ export function getFcstBaseDateTime(now = new Date()) {
 
     return {
         baseDate: `${yyyy}${mm}${dd}`,
-        baseTime: `${hh}30`
+        baseTime: `${hh}30`,
     }
-}
-
-/**
- * 
- * @param sky SKY 값 (1: 맑음, 3: 구름많음, 4: 흐림)
- * @param pty PTY 값 (0: 없음, 1: 비, 2: 비/눈, 3: 눈, 4: 소나기)
- * @returns 'sunny' | 'cloud' | 'rain' | 'snow'
- */
-function mapSkyPty(sky: string, pty: string, hour: number) {
-    const isNight = hour >= 19 || hour < 6
-    if (pty && pty !== '0') return 'rain' // 강수 가있으면 비
-    if (sky === '1') {
-        return isNight ? 'moon' : 'sunny' // 맑음
-    }
-    if (sky === '3' || sky === '4') return 'cloud' // 구름많음, 흐림
-    return isNight ? 'moon' : 'sunny'
 }
 
 function formatTimeLabel(fcstTime: string) {
@@ -109,19 +105,17 @@ export async function fetchUltraSrtFcst(
     })
 
     const sortedTimes = Object.keys(byTime).sort() // 시간순 정렬
-    const limitedTimes = sortedTimes.slice(0, 6) // 최대 6개까지 제한(화면에보여줄갯수)
+    const limitedTimes = sortedTimes.slice(0, HOURLY_MAX_COUNT)
 
     const hourlyList: HourlyItem[] = []
-    limitedTimes.forEach((key) => {
+    limitedTimes.forEach((key, index) => {
         const item = byTime[key]
         const hour = Number(item.fcstTime.slice(0, 2))
         hourlyList.push({
-            time: formatTimeLabel(item.fcstTime),
+            time: index === 0 ? '지금' : formatTimeLabel(item.fcstTime),
             temp: Number(item.temp),
-            icon: mapSkyPty(item.sky ?? '1', item.pty ?? '0', hour)
+            icon: mapSkyPty(item.sky ?? '1', item.pty ?? '0', hour).icon,
         })
     })
     return hourlyList
-    
-
 }

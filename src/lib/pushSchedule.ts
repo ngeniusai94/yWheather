@@ -157,3 +157,18 @@ export function formatPushDaysLabel(pushDays: string | null | undefined): string
   const picked = labels.filter((_, i) => pushDays[i] === '1')
   return picked.length === 0 ? '요일 없음' : picked.join(' ')
 }
+
+/** 평일·주말 전체(또는 매일)만 힌트 표시. 하루·이틀 개별 선택은 숨김 */
+export function shouldShowPushDaysHint(pushDays: string | null | undefined): boolean {
+  if (!pushDays || pushDays.length !== 7) return true
+  if (pushDays === '1111111') return true
+  if (pushDays === '1111100') return true
+  if (pushDays === '0000011') return true
+  let onCount = 0
+  for (let i = 0; i < 7; i += 1) {
+    if (pushDays[i] === '1') onCount += 1
+  }
+  if (onCount === 1) return false
+  if (onCount === 2) return false
+  return true
+}
