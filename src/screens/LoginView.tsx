@@ -7,9 +7,10 @@ import { useAuth } from '../lib/AuthContext'
 
 type LoginViewProps = {
     onGoSignup?: () => void
+    onBrowse?: () => void // 비로그인으로 날씨 메인
 }
 
-export default function LoginView({onGoSignup}: LoginViewProps) {
+export default function LoginView({onGoSignup, onBrowse}: LoginViewProps) {
     const { signIn } = useAuth() // Auth / tb_user 조회는 Context 가 담당
     const [userId, setUserId] = useState('')
     const [password, setPassword] = useState('')
@@ -55,6 +56,9 @@ export default function LoginView({onGoSignup}: LoginViewProps) {
             </Pressable>
             <Pressable style={styles.btnSignup} onPress={onGoSignup}>
                 <Text style={styles.signupTxt}>회원가입</Text>
+            </Pressable>
+            <Pressable style={styles.btnBrowse} onPress={onBrowse}>
+                <Text style={styles.browseTxt}>둘러보기</Text>
             </Pressable>
             </View>
         </TouchableWithoutFeedback>
@@ -109,5 +113,15 @@ const styles = StyleSheet.create({
         color: '#111111',
         fontSize: 16,
         fontWeight: '600',
+      },
+      btnBrowse: {
+        paddingVertical: 14,
+        alignItems: 'center',
+        marginTop: 8,
+      },
+      browseTxt: {
+        color: '#6b6b6b',
+        fontSize: 15,
+        fontWeight: '500',
       },
 })

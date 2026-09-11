@@ -47,3 +47,20 @@ export async function fetchUserProfileByUuid(userUuid: string): Promise<UserProf
     if (!data) return null
     return mapRowToProfile(data)
 }
+
+/** 닉네임 변경. 실패 시 안내 문구 */
+export async function updateNicknameByUuid(
+    userUuid: string,
+    nickname: string,
+): Promise<string | null> {
+    const { error } = await supabase
+        .from('tb_user')
+        .update({ nickname })
+        .eq('user_uuid', userUuid)
+
+    if (error) {
+        console.info('닉네임 변경 실패:', error.message)
+        return '닉네임을 변경하지 못했습니다.'
+    }
+    return null
+}

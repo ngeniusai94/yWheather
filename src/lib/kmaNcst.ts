@@ -45,6 +45,8 @@ export type NcstWeather = {
     icon: string
     high: number
     low: number
+    /** 실황 강수코드. 초단기예보 SKY와 합칠 때 사용 */
+    pty: string
 }
 
 /** 초단기실황 1회 호출 */
@@ -86,9 +88,10 @@ export async function fetchUltraSrtNcst (
     })
     
     const temperature = Number(byCategory.T1H) // 기온
-    const pty = byCategory.PTY ?? '0' // 강수량
+    const pty = byCategory.PTY ?? '0' // 강수형태 (실황에는 SKY 없음)
     const hour = new Date().getHours() // 현재 시간
-    const { summary, icon } = mapNcstPty(pty, hour) // PTY 우선, 없으면 밤/맑음
+    // 예보 SKY가 오기 전 임시값. fetchWeather에서 sky로 다시 보정
+    const { summary, icon } = mapNcstPty(pty, hour)
 
     return {
         location: location,
@@ -98,5 +101,6 @@ export async function fetchUltraSrtNcst (
         // 실황에 최고/최저 없음 -> 임시로 현재기온 표시(나중에 단기예보)
         high: Math.round(temperature),
         low: Math.round(temperature),
+        pty,
     }
 }

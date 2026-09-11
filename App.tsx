@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { Modal, ActivityIndicator, View, StyleSheet } from 'react-native';
+import { Modal, ActivityIndicator, View, StyleSheet, Alert } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 import LoginView from './src/screens/LoginView';
 import SignupView from './src/screens/SignupView'
@@ -7,8 +7,10 @@ import WeatherMainView from './src/screens/WeatherMainView'
 import SearchAreaView from './src/screens/SearchAreaView'
 import MenuView from './src/screens/MenuView'
 import PushManageView from './src/screens/PushManageView'
+import ProfileManageView from './src/screens/ProfileManageView'
 import { AuthProvider, useAuth } from './src/lib/AuthContext'
 import { DEFAULT_AREA, fetchGpsArea, WeatherArea } from './src/lib/currentArea'
+import { setupFcmListeners } from './src/lib/fcmPush'
 
 // Provider 안에서만 useAuth 를 쓸 수 있어서 화면 분기는 안쪽으로 분리
 export default function App() {
@@ -22,17 +24,27 @@ export default function App() {
 function AppRoute() {
   const { isReady, profile } = useAuth() // profile 있으면 자동로그인(또는 방금 로그인)
   const [screen, setScreen] = useState<'login' | 'signup' | 'home' | 'search'>('login')
+  const [isGuest, setIsGuest] = useState(false) // 둘러보기 (비로그인)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isPushManageOpen, setIsPushManageOpen] = useState(false)
+  const [isProfileManageOpen, setIsProfileManageOpen] = useState(false)
 
   const [area, setArea] = useState<WeatherArea | null>(null)
   const [isSearchArea, setIsSearchArea] = useState(false)
   const isSearchAreaRef = useRef(false)
 
-  // 검색으로 고른 지역이 없을 때만 GPS
+  const canUseWeather = !!profile || isGuest
+
+  // FCM 수신 로그 — 로그인 후에만 (비로그인은 토큰/기기 등록 없음)
   useEffect(() => {
-    if (!profile) {
+    if (!profile) return
+    return setupFcmListeners()
+  }, [profile])
+
+  // 검색으로 고른 지역이 없을 때만 GPS (로그인·둘러보기 모두)
+  useEffect(() => {
+    if (!canUseWeather) {
       isSearchAreaRef.current = false
       setIsSearchArea(false)
       setArea(null)
@@ -51,7 +63,23 @@ function AppRoute() {
     return () => {
       cancelled = true
     }
-  }, [profile, isSearchArea])
+  }, [canUseWeather, isSearchArea])
+
+  const goLogin = () => {
+    setIsGuest(false)
+    setIsMenuOpen(false)
+    setIsPushManageOpen(false)
+    setIsProfileManageOpen(false)
+    setScreen('login')
+  }
+
+  const requireLogin = (featureName: string) => {
+    setIsMenuOpen(false)
+    Alert.alert('알림', `${featureName}은 로그인 후 이용할 수 있습니다.`, [
+      { text: '취소', style: 'cancel' },
+      { text: '로그인', onPress: goLogin },
+    ])
+  }
 
   // 세션 + tb_user 확인 전 — 로그인 화면이 깜빡이지 않게 스피너
   if (!isReady) {
@@ -74,8 +102,8 @@ function AppRoute() {
     )
   }
 
-  // 로그인한 적 있고 세션이 살아 있으면 profile 이 채워짐 → 홈
-  if (profile) {
+  // 로그인 또는 둘러보기 → 날씨 홈
+  if (canUseWeather) {
     if (!area) {
       return (
         <View style={styles.boot}>
@@ -117,19 +145,38 @@ function AppRoute() {
           <PushManageView onClose={() => setIsPushManageOpen(false)} />
         </Modal>
 
+        <Modal
+          visible={isProfileManageOpen}
+          animationType="slide"
+          onRequestClose={() => setIsProfileManageOpen(false)}
+        >
+          <ProfileManageView
+            onClose={() => setIsProfileManageOpen(false)}
+            onWithdrawn={goLogin}
+          />
+        </Modal>
+
         <MenuView
             visible={isMenuOpen}
             onClose={() => setIsMenuOpen(false)}
             onPushPress={() => {
+              if (!profile) {
+                requireLogin('날씨 알림')
+                return
+              }
               setIsMenuOpen(false)
               setIsPushManageOpen(true)
             }}
-            onProfilePress={() => {}}
-            onLogout={() => {
+            onProfilePress={() => {
+              if (!profile) {
+                requireLogin('내 정보 관리')
+                return
+              }
               setIsMenuOpen(false)
-              setIsPushManageOpen(false)
-              setScreen('login')
+              setIsProfileManageOpen(true)
             }}
+            onLogout={goLogin}
+            onLoginPress={goLogin}
         />           
       </>
     )
@@ -157,6 +204,10 @@ function AppRoute() {
     <>
       <LoginView
         onGoSignup={() => setScreen('signup')}
+        onBrowse={() => {
+          setIsGuest(true)
+          setScreen('home')
+        }}
       />
     </>
   );

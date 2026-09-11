@@ -7,6 +7,7 @@ import { fetchUltraSrtNcst, formatKmaBaseLabel, getNcstBaseDateTime } from "../l
 import { fetchUltraSrtFcst, getFcstBaseDateTime } from "../lib/kmaFcst";
 import { getVilageBaseDateTime } from "../lib/kmaDaily";
 import { fetchWeekDaily } from "../lib/kmaMid";
+import { mapNcstPty } from "../lib/kmaSkyPty";
 import WeatherFxLayer from "../components/WeatherFxLayer";
 
 type WeatherMainViewProps = {
@@ -71,6 +72,8 @@ type HourlyItem = {
     time : string
     temp : number
     icon : string
+    sky?: string
+    fcstHour?: number
 }
 
 type DailyItem = {
@@ -88,6 +91,15 @@ type CurrentResponse = {
     current: CurrentData
     hourly: HourlyItem[]
     daily: DailyItem[]
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+            setTimeout(() => reject(new Error('날씨 API 요청 시간 초과')), timeoutMs)
+        }),
+    ])
 }
 
 /** 테마 테스트: 'sunny' | 'cloudy' | 'rain' | 'snow' | 'night' 넣으면 API 무시 */
@@ -119,7 +131,7 @@ async function fetchWeather(
     locationName: string,
     areaText: string,
 ): Promise<CurrentResponse> {
-    const [current, hourly, daily] = await Promise.all([
+    const [ncst, hourly, daily] = await Promise.all([
         fetchUltraSrtNcst(nx, ny, locationName),
         fetchUltraSrtFcst(nx, ny).catch((error) => {
             console.error('시간별 예보 실패:', error)
@@ -130,6 +142,13 @@ async function fetchWeather(
             return [] as DailyItem[]
         }),
     ])
+
+    // 기온·강수(PTY)는 실황, 구름(SKY)은 시간별 예보 중 "현재 시" 칸 사용
+    // 예: 지금이 18시면 18시 예보의 SKY (첫 칸/지금 라벨이 아님)
+    const hour = new Date().getHours()
+    const hourSlot = hourly.find((item) => item.fcstHour === hour) ?? hourly[0]
+    const { summary, icon } = mapNcstPty(ncst.pty, hour, hourSlot?.sky)
+    const { pty: _pty, ...current } = { ...ncst, summary, icon }
 
     return { current, hourly, daily }
 }
@@ -159,11 +178,14 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
                 setIsLoading(true)
                 setErrorMessage(null)
 
-                const data = await fetchWeather(
-                    area.nx,
-                    area.ny,
-                    area.name,
-                    area.address ?? area.name,
+                const data = await withTimeout(
+                    fetchWeather(
+                        area.nx,
+                        area.ny,
+                        area.name,
+                        area.address ?? area.name,
+                    ),
+                    15000,
                 )
                 setCurrent(data.current) // 받은 값으로 state 갱신 → 화면 다시 그림
                 setHourly(Array.isArray(data.hourly) ? data.hourly : [])
@@ -204,7 +226,15 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
 
     // ----- 로딩 중: 본문 대신 스피너 -----
     // weather가 null인데 본문을 그리면 .location 접근 시 런타임 에러
-    if(isLoading || !current) {
+    if (errorMessage) {
+        return (
+            <View style={styles.loading}>
+                <Text style={styles.txtLoading}>{errorMessage}</Text>
+            </View>
+        )
+    }
+
+    if (isLoading || !current) {
         return (
             <View style={styles.loading}>
                 <ActivityIndicator size="large" color="#6b6b6b" />
@@ -213,7 +243,7 @@ export default function WeatherMainView({ area, onSearchPress, onMenuPress }: We
         )
     }
 
-    if(errorMessage || !current) {
+    if (!current) {
         return (
             <View style={styles.loading}>
                 <Text style={styles.txtLoading}>

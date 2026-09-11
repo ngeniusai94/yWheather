@@ -1,0 +1,5 @@
+# yWheather — Edge Functions 만 사용 (로컬 supabase start 없음)
+project_id = "ywheather"
+
+[functions.send-scheduled-push]
+verify_jwt = false

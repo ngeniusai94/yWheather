@@ -14,6 +14,7 @@ type MenuViewProps = {
     onPushPress: () => void
     onProfilePress: () => void
     onLogout: () => void
+    onLoginPress: () => void // 비로그인: 로그인 화면으로
 }
 
 export default function MenuView({
@@ -22,6 +23,7 @@ export default function MenuView({
     onPushPress,
     onProfilePress,
     onLogout,
+    onLoginPress,
 }: MenuViewProps) {
     const { signOut, profile } = useAuth() // 세션 + Context 프로필을 함께 비움
     const slideX = useRef(new Animated.Value(-MENU_WIDTH)).current
@@ -69,11 +71,10 @@ export default function MenuView({
                         </View>
                         <Ionicons name="chevron-forward" size={16} color="#bbbbbb" />
                     </Pressable>
-                    {/* 임시 숨김 — 내정보변경 행 전체 */}
-                    <Pressable style={[styles.menuRow, styles.hidden]} onPress={onProfilePress}>
+                    <Pressable style={styles.menuRow} onPress={onProfilePress}>
                         <View style={styles.menuLeft}>
                             <Ionicons name="person-outline" size={18} color="#111111" />
-                            <Text style={styles.menuTxt}>내정보변경</Text>
+                            <Text style={styles.menuTxt}>내 정보 관리</Text>
                         </View>
                         <Ionicons name="chevron-forward" size={16} color="#bbbbbb" />
                     </Pressable>
@@ -81,10 +82,17 @@ export default function MenuView({
 
                 <View style={styles.footer}>
                     <View style={styles.footerRow}>
-                        <Pressable style={styles.logoutRow} onPress={handleLogout} hitSlop={8}>
-                            <Ionicons name="log-out-outline" size={16} color="#6b6b6b" />
-                            <Text style={styles.logoutTxt}>로그아웃</Text>
-                        </Pressable>
+                        {profile ? (
+                            <Pressable style={styles.logoutRow} onPress={handleLogout} hitSlop={8}>
+                                <Ionicons name="log-out-outline" size={16} color="#6b6b6b" />
+                                <Text style={styles.logoutTxt}>로그아웃</Text>
+                            </Pressable>
+                        ) : (
+                            <Pressable style={styles.logoutRow} onPress={onLoginPress} hitSlop={8}>
+                                <Ionicons name="log-in-outline" size={16} color="#6b6b6b" />
+                                <Text style={styles.logoutTxt}>로그인</Text>
+                            </Pressable>
+                        )}
                         <Text style={styles.versionTxt}>ver 1.0.0</Text>
                     </View>
                 </View>
@@ -166,10 +174,6 @@ const styles = StyleSheet.create({
         fontSize: 15,                            // 글자 크기
         fontWeight: '500',                       // 글자 두께 (500 = Medium)
         color: '#111111',                        // 글자색 거의 검정
-    },
-    // 임시로 영역 전체 숨김
-    hidden: {
-        display: 'none',
     },
     // 로그아웃·버전이 붙는 맨 아래 영역
     footer: {

@@ -10,6 +10,10 @@ export type HourlyItem = {
     time: string
     temp: number
     icon: string
+    /** 초단기예보 SKY. 현재날씨 구름상태 보정에 사용 */
+    sky?: string
+    /** 예보 시각(0~23). 현재 시각과 같은 칸을 찾을 때 사용 */
+    fcstHour?: number
 }
 
 type FcstItem = {
@@ -108,13 +112,15 @@ export async function fetchUltraSrtFcst(
     const limitedTimes = sortedTimes.slice(0, HOURLY_MAX_COUNT)
 
     const hourlyList: HourlyItem[] = []
-    limitedTimes.forEach((key, index) => {
+    limitedTimes.forEach((key) => {
         const item = byTime[key]
         const hour = Number(item.fcstTime.slice(0, 2))
         hourlyList.push({
-            time: index === 0 ? '지금' : formatTimeLabel(item.fcstTime),
+            time: formatTimeLabel(item.fcstTime), // 예: 18시
             temp: Number(item.temp),
             icon: mapSkyPty(item.sky ?? '1', item.pty ?? '0', hour).icon,
+            sky: item.sky,
+            fcstHour: hour,
         })
     })
     return hourlyList

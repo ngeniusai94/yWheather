@@ -34,6 +34,10 @@ yarn-error.*
 .env
 .env*.local
 
+# Firebase 설정 (키 포함)
+GoogleService-Info.plist
+google-services.json
+
 # typescript
 *.tsbuildinfo
 
